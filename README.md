@@ -8,6 +8,7 @@ Date: 16 August 2025
 ## Table of Contents
 
 - [About](#about)
+- [Operational Considerations](#operational-considerations)
 - [Features](#features)
 - [Algorithm](#algorithm)
   - [Critical Distinction: HMAC vs. Simple Hash Storage](#critical-distinction-hmac-vs-simple-hash-storage)
@@ -43,6 +44,18 @@ Date: 16 August 2025
 ## About
 
 This system implements a cryptographic chain verification mechanism for log events using configurable hash algorithms (SHA256, SHA384, SHA512) and HMAC (Hash-based Message Authentication Code). It creates a verifiable chain of log entries where each entry is cryptographically linked to the previous one, ensuring data integrity and tamper detection.
+
+**⚠️ Critical Operational Requirements:**
+
+**This system is designed for archived/rotated logs, NOT active log files:**
+- **Use Case**: Process logs that have been rotated by rsyslog and are no longer being written to
+- **Do NOT use**: On log files that are currently open and being written by rsyslog or other processes
+- **Reason**: Processing active logs can cause file corruption, incomplete chains, or race conditions
+
+**Storage Requirements:**
+- **HDF5 files and TSA timestamps must be stored separately** from the archived logs
+- **Purpose**: Prevent accidental deletion during log rotation or cleanup procedures
+- **Recommendation**: Store verification data in a dedicated, secure location with proper backup procedures
 
 **Key Advantage: Precise Tamper Detection**
 
@@ -400,6 +413,114 @@ If someone modifies line 1000 in a 10,000-line log file:
 - **Database Role**: HDF5 file serves as starting point and recovery reference, not for constant verification
 - **Scalability**: HMAC scales linearly with file size, while hash lookups become increasingly slower
 
+## Operational Considerations
+
+### **⚠️ Critical: Use Only with Archived Logs**
+
+**This system is designed for archived/rotated logs, NOT active log files:**
+
+**✅ Correct Usage:**
+```bash
+# Process archived logs (safe)
+./chain_verification.py --source-file /var/log/messages.1.gz --output archived_messages_chain.h5
+./chain_verification.py --source-file /var/log/secure.2025-08-15 --output secure_log_chain.h5
+```
+
+**❌ Incorrect Usage:**
+```bash
+# DO NOT process active logs (dangerous)
+./chain_verification.py --source-file /var/log/messages --output active_chain.h5  # WRONG!
+./chain_verification.py --source-file /var/log/secure --output active_chain.h5    # WRONG!
+```
+
+**Why This Matters:**
+- **File Corruption**: Processing active logs can cause incomplete reads or corruption
+- **Race Conditions**: Log entries may be written while the file is being processed
+- **Incomplete Chains**: The verification chain may be incomplete or invalid
+- **System Impact**: May interfere with rsyslog's normal operation
+
+### **📁 Storage Architecture**
+
+**Separate Storage for Verification Data:**
+```
+/var/log/                    # Original archived logs (may be rotated/deleted)
+├── messages.1.gz
+├── messages.2.gz
+└── secure.2025-08-15
+
+/opt/chain-verification/      # Dedicated storage for verification data
+├── chains/
+│   ├── messages_2025-08-15.h5
+│   ├── messages_2025-08-15.h5.tsr
+│   ├── secure_2025-08-15.h5
+│   └── secure_2025-08-15.h5.tsr
+└── metadata/
+    └── verification_index.json
+```
+
+**Benefits of Separate Storage:**
+- **Preservation**: Verification data survives log rotation and cleanup
+- **Security**: Dedicated location with proper access controls
+- **Backup**: Can be backed up independently of log files
+- **Compliance**: Maintains audit trail even after original logs are archived/deleted
+
+### **🔄 Integration with rsyslog**
+
+**Recommended Workflow:**
+1. **Log Rotation**: rsyslog rotates logs (e.g., messages → messages.1)
+2. **Processing**: Run chain verification on the rotated log file
+3. **Storage**: Store HDF5 and TSA files in dedicated location
+4. **Verification**: Use stored verification data for integrity checks
+5. **Cleanup**: Original rotated logs can be compressed/archived/deleted
+
+**Automation Example:**
+```bash
+#!/bin/bash
+# Process rotated logs automatically
+ROTATED_LOG="/var/log/messages.1"
+CHAIN_DIR="/opt/chain-verification/chains"
+DATE=$(date +%Y-%m-%d)
+
+if [ -f "$ROTATED_LOG" ]; then
+    ./chain_verification.py --source-file "$ROTATED_LOG" \
+                           --output "$CHAIN_DIR/messages_$DATE.h5" \
+                           --tsa-url http://timestamp.digicert.com/ \
+                           --ca-bundle /etc/pki/tls/certs/ca-bundle.crt
+fi
+```
+
+### **🏭 Production Deployment Best Practices**
+
+**Directory Structure:**
+```bash
+# Create dedicated directories
+sudo mkdir -p /opt/chain-verification/{chains,metadata,scripts,logs}
+sudo chown -R root:root /opt/chain-verification
+sudo chmod -R 750 /opt/chain-verification
+```
+
+**Security Considerations:**
+- **Access Control**: Restrict access to verification data (chmod 750)
+- **Backup Strategy**: Include verification data in backup procedures
+- **Monitoring**: Monitor disk space for verification data storage
+- **Retention Policy**: Define retention periods for verification data
+
+**Integration with logrotate:**
+```bash
+# /etc/logrotate.d/chain-verification
+/var/log/messages.1 {
+    postrotate
+        /opt/chain-verification/scripts/process_rotated_log.sh
+    endscript
+}
+```
+
+**Monitoring and Alerting:**
+- Monitor verification data creation success/failure
+- Alert on verification data corruption or missing files
+- Track storage usage for verification data
+- Monitor TSA timestamping success rates
+
 ## Installation
 
 1. Install Python 3 dependencies:
@@ -715,6 +836,8 @@ h5dump -d sha256_hashes chain.h5
 ```
 
 ## Usage
+
+**⚠️ Important**: Only use with archived/rotated log files, never with active log files being written by rsyslog or other processes.
 
 ### Basic Usage
 
