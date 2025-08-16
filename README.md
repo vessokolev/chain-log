@@ -48,11 +48,13 @@ This system implements a cryptographic chain verification mechanism for log even
 **⚠️ Critical Operational Requirements:**
 
 **This system is designed for archived/rotated logs, NOT active log files:**
+
 - **Use Case**: Process logs that have been rotated by rsyslog and are no longer being written to
 - **Do NOT use**: On log files that are currently open and being written by rsyslog or other processes
 - **Reason**: Processing active logs can cause file corruption, incomplete chains, or race conditions
 
 **Storage Requirements:**
+
 - **HDF5 files and TSA timestamps must be stored separately** from the archived logs
 - **Purpose**: Prevent accidental deletion during log rotation or cleanup procedures
 - **Recommendation**: Store verification data in a dedicated, secure location with proper backup procedures
@@ -131,16 +133,19 @@ For large files, fast verification uses sampling to improve performance:
 The system implements a **two-phase scanning approach** to identify modifications:
 
 **Phase 1: Coarse-Grained Scan**
+
 1. Use fast verification with configurable interval (default: every 100th line)
 2. Identify regions where HMAC verification fails
 3. Detect line count mismatches (additions/deletions)
 
 **Phase 2: Fine-Grained Scan**
+
 1. Within affected regions, use finer interval (default: every 10th line)
 2. Pinpoint exact line numbers where modifications occur
 3. Identify specific types of changes (edited, added, deleted)
 
 **Phase 3: Detailed Analysis**
+
 1. Compare original vs. current content for modified lines
 2. Classify modifications (content change, line addition, line deletion)
 3. Provide forensic analysis with before/after content
@@ -165,6 +170,7 @@ for i in range(1, total_lines):
 ```
 
 **Key Points:**
+
 - **Chain Computation**: ALWAYS computes the complete HMAC chain
 - **Selective Verification**: Only VERIFIES the HMAC at sampled lines
 - **Cryptographic Proof**: Each verified HMAC proves all previous lines are authentic
@@ -195,12 +201,14 @@ For sampled lines:
 **Why HMAC Chain Verification is Essential:**
 
 **The Problem with Individual Hash Comparison:**
+
 - **Sampled Lines Only**: Only checks specific lines (100, 200, 300, etc.)
 - **Missing Verification**: Lines 101-199, 201-299, etc. are not verified
 - **No Chain Integrity**: Cannot detect if intermediate lines were modified
 - **False Security**: Gives illusion of verification without proving chain integrity
 
 **The Solution with HMAC Chain Verification:**
+
 - **Complete Chain**: Computes HMAC chain from line 1 to each sampled line
 - **Cryptographic Proof**: Each sampled HMAC proves all previous lines are authentic
 - **Chain Continuity**: Any modification to any line breaks the entire chain
@@ -213,11 +221,13 @@ Modified: Line1 → Line2 → ... → Line100 → Line101' → ... → Line200
 ```
 
 **❌ Individual Hash Comparison:**
+
 - Checks Line100 hash: ✅ (matches)
 - Checks Line200 hash: ✅ (matches)
 - **Result**: "File is authentic" (WRONG - Line101 was modified)
 
 **✅ HMAC Chain Verification:**
+
 - Computes HMAC chain to Line100: ✅ (matches)
 - Computes HMAC chain to Line200: ❌ (fails because Line101 was modified)
 - **Result**: "Chain integrity broken at Line200" (CORRECT)
@@ -236,11 +246,13 @@ The HMAC provides **automatic, cryptographic verification** that the previous li
 The verification process follows this exact sequence:
 
 **Step 1: First Line Hash Check**
+
 1. **Compute** hash of line 1 from current file
 2. **Compare** with stored hash of line 1 in HDF5 file
 3. **Result**: If mismatch, file has been modified
 
 **Step 2: HMAC Chain Verification**
+
 1. **Start** with hash of line 1 (from step 1)
 2. **For each subsequent line N**:
    - **Compute** hash of line N
@@ -249,6 +261,7 @@ The verification process follows this exact sequence:
    - **Result**: If HMAC mismatch, chain integrity is broken
 
 **Step 3: Final Verification**
+
 1. **If** all HMACs match up to the last line
 2. **Then** the file hasn't been changed
 3. **Result**: Complete file integrity verified
@@ -279,6 +292,7 @@ For each line N:
 **Why Store HMACs?** HMACs must be stored because they require the original previous hash as input. During verification, we only have the current file's lines, not the original previous hashes. See [Why Store HMACs in HDF5?](#why-store-hmacs-in-hdf5) for detailed explanation.
 
 **Key Advantages of HMAC over Simple Hash Storage:**
+
 - **Automatic Chain Validation**: Each HMAC verification confirms the previous line was authentic
 - **Cryptographic Security**: HMAC provides mathematical proof of chain integrity
 - **Performance**: No constant database lookups needed during verification
@@ -288,12 +302,14 @@ For each line N:
 - **Complete Recovery**: Can verify entire file even with partial corruption
 
 **HDF5 Database Role:**
+
 - **Starting Point**: Provides initial hashes to begin chain verification
 - **Recovery Reference**: Used only when chain breaks to identify where verification can resume
 - **Not Primary Verification**: The database is NOT used for line-by-line verification
 - **Supporting Role**: Serves as a backup reference, not the main verification mechanism
 
 **Database Usage Patterns:**
+
 - **Normal Verification**: Database accessed only once at the start to get initial hashes
 - **Chain Break Recovery**: Database accessed only when HMAC verification fails to find recovery point
 - **Independent Verification**: Database used to retrieve stored hashes for independent line verification
@@ -302,23 +318,27 @@ For each line N:
 **Performance Considerations by File Size:**
 
 **📁 Small Files (< 1,000 lines):**
+
 - **HMAC Approach**: May be slower due to HMAC computation overhead
 - **Hash Lookup Approach**: Could be faster with direct hash comparisons
 - **Trade-off**: HMAC provides cryptographic security vs. simple hash storage speed
 - **Recommendation**: HMAC still preferred for security, but performance difference is minimal
 
 **📁 Large Files (> 10,000 lines):**
+
 - **HMAC Approach**: Significantly faster due to minimal database access
 - **Hash Lookup Approach**: Becomes very slow with constant database lookups
 - **Performance Gain**: HMAC verification scales linearly, hash lookups scale poorly
 - **Recommendation**: HMAC is clearly superior for large files
 
 **📁 Medium Files (1,000 - 10,000 lines):**
+
 - **HMAC Approach**: Good balance of security and performance
 - **Hash Lookup Approach**: Acceptable performance but lacks cryptographic security
 - **Trade-off**: HMAC provides both security and reasonable performance
 
 **Why Not Just Store Hashes?**
+
 If we only stored hashes in the HDF5 file, we would need to:
 - Look up each hash individually during verification
 - Compare each computed hash with stored hash
@@ -326,12 +346,14 @@ If we only stored hashes in the HDF5 file, we would need to:
 - Have no cryptographic chain linking lines together
 
 **Performance Impact:**
+
 - **Small Files**: Hash lookups might be marginally faster than HMAC computation
 - **Large Files**: Constant database access becomes a major performance bottleneck
 - **Scalability**: Hash lookups scale poorly with file size, HMAC scales linearly
 - **Real-world Impact**: Large log files (10,000+ lines) would be significantly slower with hash lookups
 
 **HMAC Solution:**
+
 - **Cryptographic Chain**: Each HMAC links to the previous line's hash
 - **Automatic Verification**: HMAC validation provides chain integrity proof
 - **Efficient Processing**: No constant database lookups needed
@@ -340,11 +362,13 @@ If we only stored hashes in the HDF5 file, we would need to:
 **Addressing Common Misconceptions:**
 
 **❌ "Why not just store hashes in the HDF5 file?"**
+
 - **Misconception**: Storing individual hashes would be sufficient
 - **Reality**: This would require constant database lookups for every line verification
 - **Problem**: No cryptographic link between lines, just individual hash comparisons
 
 **✅ "Why use HMAC instead of just hashes?"**
+
 - **Solution**: HMAC creates a cryptographic chain linking each line to the previous one
 - **Advantage**: Each line automatically verifies the previous line through HMAC validation
 - **Efficiency**: No need for constant database access during verification
@@ -362,6 +386,7 @@ curl -H "Content-Type: application/timestamp-query" --data-binary @messages.tsq 
 ```
 
 **Problems with Simple Timestamping:**
+
 - ❌ Cannot identify which specific lines were modified
 - ❌ Cannot distinguish between legitimate and malicious changes
 - ❌ Cannot determine the scope of modifications
@@ -375,6 +400,7 @@ curl -H "Content-Type: application/timestamp-query" --data-binary @messages.tsq 
 ```
 
 **Advantages of Chain Verification:**
+
 - ✅ **Automatic Verification**: HMAC provides cryptographic proof without manual lookups
 - ✅ **Precise Detection**: Identifies exactly which line was modified
 - ✅ **Scope Assessment**: Determines how much of the file was affected
@@ -383,23 +409,27 @@ curl -H "Content-Type: application/timestamp-query" --data-binary @messages.tsq 
 - ✅ **Forensic Analysis**: Provides detailed tamper evidence for investigations
 
 **Real-World Example:**
+
 If someone modifies line 1000 in a 10,000-line log file:
 - **Simple timestamping**: "The file was modified" (no details)
 - **Chain verification**: "Line 1000 was modified, lines 1-999 are intact, lines 1001-10000 may be affected"
 
 **Performance Example:**
+
 - **Small file (500 lines)**: HMAC vs. hash lookup performance difference is minimal (~1-2 seconds)
 - **Medium file (5,000 lines)**: HMAC starts showing advantage (~10-15 seconds vs. 20-30 seconds)
 - **Large file (50,000 lines)**: HMAC significantly faster (~2-3 minutes vs. 10-15 minutes)
 - **Very large file (100,000+ lines)**: Hash lookups become impractical, HMAC remains efficient
 
 **Fast Verification Performance:**
+
 - **Large file (50,000 lines)**: Full verification ~2-3 minutes, Fast verification (100) ~10-15 seconds
 - **Very large file (100,000+ lines)**: Full verification ~5-10 minutes, Fast verification (1000) ~30-60 seconds
 - **Sampling Rate**: 1% (100), 2% (50), 0.1% (1000) of lines checked
 - **Speed Improvement**: 10-20x faster for large files with minimal security trade-off
 
 **Modification Scanning Performance:**
+
 - **Coarse Scan**: Uses fast verification to quickly identify affected regions
 - **Fine Scan**: Detailed analysis within affected regions only
 - **Performance**: 50-100x faster than full verification for large files with modifications
@@ -407,6 +437,7 @@ If someone modifies line 1000 in a 10,000-line log file:
 - **Forensic Analysis**: Provides before/after content for modified lines
 
 **Efficiency Advantage:**
+
 - **Traditional approach**: Would require checking each line against a stored reference (constant lookups)
 - **HMAC approach**: Each line automatically verifies the previous line through cryptographic HMAC validation
 - **Performance**: Verification proceeds line-by-line with built-in integrity checks, no external lookups needed
@@ -434,6 +465,7 @@ If someone modifies line 1000 in a 10,000-line log file:
 ```
 
 **Why This Matters:**
+
 - **File Corruption**: Processing active logs can cause incomplete reads or corruption
 - **Race Conditions**: Log entries may be written while the file is being processed
 - **Incomplete Chains**: The verification chain may be incomplete or invalid
@@ -459,6 +491,7 @@ If someone modifies line 1000 in a 10,000-line log file:
 ```
 
 **Benefits of Separate Storage:**
+
 - **Preservation**: Verification data survives log rotation and cleanup
 - **Security**: Dedicated location with proper access controls
 - **Backup**: Can be backed up independently of log files
@@ -467,6 +500,7 @@ If someone modifies line 1000 in a 10,000-line log file:
 ### **🔄 Integration with rsyslog**
 
 **Recommended Workflow:**
+
 1. **Log Rotation**: rsyslog rotates logs (e.g., messages → messages.1)
 2. **Processing**: Run chain verification on the rotated log file
 3. **Storage**: Store HDF5 and TSA files in dedicated location
@@ -506,17 +540,20 @@ sudo cp scripts/logrotate-config /etc/logrotate.d/chain-verification
 **Automation Methods:**
 
 **Method 1: Real-time Monitoring (Recommended)**
+
 - Uses `inotify` to detect log rotation events immediately
 - Processes rotated logs within seconds of rotation
 - Runs as a systemd service for reliability
 - Automatic restart on failure
 
 **Method 2: Logrotate Integration**
+
 - Triggers processing after logrotate completes rotation
 - Slightly delayed but more reliable
 - Integrates with existing log rotation policies
 
 **Method 3: rsyslog Integration**
+
 - Direct integration with rsyslog configuration
 - Immediate processing during rotation
 - Requires rsyslog configuration changes
@@ -532,6 +569,7 @@ sudo chmod -R 750 /opt/chain-verification
 ```
 
 **Security Considerations:**
+
 - **Access Control**: Restrict access to verification data (chmod 750)
 - **Backup Strategy**: Include verification data in backup procedures
 - **Monitoring**: Monitor disk space for verification data storage
@@ -576,6 +614,7 @@ done
 ```
 
 **Key Features:**
+
 - **Automatic Configuration Parsing**: Reads `/etc/logrotate.d/rsyslog` to find log files
 - **Compression Support**: Handles `.gz`, `.bz2`, and `.xz` compressed files
 - **Multiple Rotation Patterns**: Supports `.1`, `.2`, date-based, and compressed rotations
@@ -583,6 +622,7 @@ done
 - **Error Handling**: Comprehensive logging and cleanup of temporary files
 
 **Monitoring and Alerting:**
+
 - Monitor verification data creation success/failure
 - Alert on verification data corruption or missing files
 - Track storage usage for verification data
@@ -596,6 +636,7 @@ pip3 install h5py>=3.8.0 numpy>=1.21.0 requests>=2.25.0 cryptography>=3.4.0
 ```
 
 **System Requirements:**
+
 - OpenSSL (for TSA timestamping)
 - curl (for TSA requests)
 - User-provided CA bundle file (ca-bundle.pem) for TSA verification
@@ -607,6 +648,7 @@ The system stores all verification data in HDF5 (Hierarchical Data Format 5) fil
 ### **📁 Data Structure**
 
 **Root Level Attributes:**
+
 - `creation_date`: ISO timestamp when the chain was created
 - `hash_algorithm`: The hash algorithm used (SHA256/SHA384/SHA512)
 - `total_entries`: Number of log entries processed
@@ -617,6 +659,7 @@ The system stores all verification data in HDF5 (Hierarchical Data Format 5) fil
 ### **📊 Datasets Stored**
 
 **1. Line Content Dataset:**
+
 - **Name**: `log_lines`
 - **Type**: String array
 - **Content**: Original log lines from the source file
@@ -624,6 +667,7 @@ The system stores all verification data in HDF5 (Hierarchical Data Format 5) fil
 - **Compression**: Applied based on user settings
 
 **2. Hash Dataset:**
+
 - **Name**: `{algorithm}_hashes` (e.g., `sha256_hashes`, `sha384_hashes`, `sha512_hashes`)
 - **Type**: Binary array (32, 48, or 64 bytes per hash)
 - **Content**: Raw binary hashes of each log line
@@ -631,6 +675,7 @@ The system stores all verification data in HDF5 (Hierarchical Data Format 5) fil
 - **Storage**: Binary format for efficiency (not hex strings)
 
 **3. HMAC Dataset:**
+
 - **Name**: `hmacs`
 - **Type**: Binary array (32, 48, or 64 bytes per HMAC)
 - **Content**: Raw binary HMACs linking each line to the previous one
@@ -645,6 +690,7 @@ The system stores all verification data in HDF5 (Hierarchical Data Format 5) fil
 **✅ Reality**: HDF5 stores both **HMACs** and the **keys** (previous hashes) needed to compute them. HMACs must be stored because they require the **original previous hash** as input:
 
 **What HDF5 Actually Stores:**
+
 - **`{algorithm}_hashes`**: The individual line hashes (these are the keys for HMAC computation)
 - **`hmacs`**: The computed HMACs using each line's hash and the previous line's hash
 - **Both datasets together**: Provide all the data needed for verification without recomputation
@@ -655,6 +701,7 @@ HMAC(line_N) = HMAC(current_hash, previous_hash)
 ```
 
 **The Problem with Recomputation:**
+
 - **During Verification**: We only have the current file's lines
 - **Original Data**: We DO have the original previous hashes stored in HDF5
 - **Chain Dependency**: Each HMAC depends on the exact previous hash value
@@ -668,6 +715,7 @@ HMAC(line_N) = HMAC(current_hash, previous_hash)
 5. **Solution**: Store original HMACs in HDF5 for comparison
 
 **Why Not Just Store Previous Hashes?**
+
 - **HMAC Storage**: Stores the cryptographic proof (HMAC) with automatic chain validation
 - **Hash Storage**: Would store individual hashes but require constant database lookups
 - **Security**: HMAC provides cryptographic chain integrity, hash storage provides individual verification
@@ -679,6 +727,7 @@ HMAC(line_N) = HMAC(current_hash, previous_hash)
 **Step-by-Step Verification:**
 1. **Step 1**: Check if hash of line 1 matches stored hash in HDF5 file
 2. **Step 2**: For each subsequent line N:
+
    - **Compute** hash of line N from current file
    - **Retrieve** previous line's hash from HDF5 (the key for HMAC computation)
    - **Compute** HMAC using line N's hash and the retrieved previous hash
@@ -687,6 +736,7 @@ HMAC(line_N) = HMAC(current_hash, previous_hash)
 4. **Result**: If any step fails, tampering is detected
 
 **Why This Works:**
+
 - **Step 1 Verification**: Ensures the first line hasn't been modified
 - **Chain Verification**: Each HMAC confirms the previous line was authentic
 - **Cascade Effect**: Any modification breaks the entire chain
@@ -721,12 +771,14 @@ Result: Efficient chain verification with multiple fallback methods for any scen
 ```
 
 **Chain Continuation Strategy:**
+
 - **Primary**: HMAC chain verification for unmodified sections
 - **Fallback**: Independent verification for modified sections
 - **Recovery**: Resume HMAC chain from next unmodified line
 - **Complete Coverage**: Verify entire file even with partial corruption
 
 **4. Independent Verification Dataset:**
+
 - **Name**: `independent_hashes`
 - **Type**: Binary array (32, 48, or 64 bytes per hash)
 - **Content**: Hashes of `line_number + content` for independent verification
@@ -734,6 +786,7 @@ Result: Efficient chain verification with multiple fallback methods for any scen
 - **Storage**: Binary format for efficiency
 
 **5. Chain Verification Dataset:**
+
 - **Name**: `chain_hashes`
 - **Type**: Binary array (32, 48, or 64 bytes per hash)
 - **Content**: Hashes of `previous_hash + current_hash` for chain verification
@@ -743,23 +796,27 @@ Result: Efficient chain verification with multiple fallback methods for any scen
 ### **🔗 Dataset Relationships and Purpose**
 
 **Primary Verification Method (HMACs):**
+
 - **Main Purpose**: Chain verification using cryptographic HMACs
 - **Data Used**: `hmacs` dataset
 - **Process**: Verify HMAC using current and previous line hashes
 - **Advantage**: Cryptographic security with automatic chain validation
 
 **Fallback Verification Methods:**
+
 - **Independent Verification**: Uses `independent_hashes` dataset
 - **Chain Verification**: Uses `chain_hashes` dataset
 - **Purpose**: When HMAC chain breaks, these provide alternative verification
 - **Use Case**: Recovery from partial corruption or tampering
 
 **Reference Data:**
+
 - **Line Content**: `log_lines` dataset for comparison and analysis
 - **Individual Hashes**: `{algorithm}_hashes` dataset for independent verification
 - **Purpose**: Provide complete reference for forensic analysis
 
 **Why Multiple Verification Methods?**
+
 - **HMAC Primary**: Most secure and efficient for normal verification
 - **Independent Fallback**: Works even when chain is broken
 - **Chain Hash Fallback**: Alternative chain verification method
@@ -769,6 +826,7 @@ Result: Efficient chain verification with multiple fallback methods for any scen
 
 **The Problem:**
 When lines are modified, deleted, or inserted, the HMAC chain breaks because:
+
 - **Modified Lines**: Change the hash, breaking subsequent HMACs
 - **Deleted Lines**: Remove hashes from the chain
 - **Inserted Lines**: Add new hashes that weren't in the original chain
@@ -780,6 +838,7 @@ Modified File:  Line1 → Hash1' → HMAC2' → Line2 → Hash2' → HMAC3' → 
 ```
 
 **How Chain Continuation Works:**
+
 1. **HMAC Verification Fails**: At the first modified line, HMAC verification fails
 2. **Hash Comparison**: Compare current file hashes with stored original hashes
 3. **Identify Changes**: Find which lines were modified, deleted, or inserted
@@ -787,6 +846,7 @@ Modified File:  Line1 → Hash1' → HMAC2' → Line2 → Hash2' → HMAC3' → 
 5. **Independent Verification**: For modified sections, use independent hashes for verification
 
 **Example Scenario:**
+
 - **Original**: 1000 lines with complete HMAC chain
 - **Modified**: Lines 500-510 were changed by an attacker
 - **Result**: 
@@ -795,6 +855,7 @@ Modified File:  Line1 → Hash1' → HMAC2' → Line2 → Hash2' → HMAC3' → 
   - Lines 511-1000: HMAC verification resumes using stored hashes
 
 **Practical Benefits:**
+
 - **Forensic Analysis**: Can identify exactly which lines were modified
 - **Data Recovery**: Can extract valid data from partially corrupted files
 - **Incident Response**: Can continue monitoring even after detecting tampering
@@ -830,11 +891,13 @@ file.create_dataset('chain_data', data=structured_data, compression=compression)
 ### **💾 Compression Options**
 
 **Available Compression Methods:**
+
 - **gzip**: General-purpose compression (levels 0-9)
 - **lzf**: Fast compression with good ratio
 - **szip**: Scientific data compression (best for numerical data)
 
 **Compression Impact:**
+
 - **File Size**: Can reduce size by 30-70% depending on data
 - **Access Speed**: Slightly slower read/write due to decompression
 - **Compatibility**: All methods are widely supported
@@ -842,11 +905,13 @@ file.create_dataset('chain_data', data=structured_data, compression=compression)
 ### **📈 Storage Efficiency**
 
 **Binary vs. Hex Storage:**
+
 - **Hex Strings**: 64 characters for SHA256 (128 bytes for SHA512)
 - **Binary Storage**: 32 bytes for SHA256 (64 bytes for SHA512)
 - **Space Savings**: 50% reduction in storage size
 
 **Example File Sizes:**
+
 - **10,000 lines, SHA256**: ~2-3 MB uncompressed, ~1-2 MB compressed
 - **50,000 lines, SHA512**: ~8-10 MB uncompressed, ~4-6 MB compressed
 - **100,000 lines, SHA384**: ~12-15 MB uncompressed, ~6-8 MB compressed
@@ -854,12 +919,14 @@ file.create_dataset('chain_data', data=structured_data, compression=compression)
 ### **🔍 Data Access Patterns**
 
 **Verification Access:**
+
 1. **Chain Verification**: Read HMACs sequentially, minimal database access
 2. **Independent Verification**: Read specific independent_hashes as needed
 3. **Analysis Operations**: Read log_lines and hashes for comparison
 4. **Recovery Operations**: Access specific datasets when chain breaks
 
 **Performance Characteristics:**
+
 - **Sequential Access**: Very fast for chain verification
 - **Random Access**: Efficient for independent verification
 - **Compression**: Minimal impact on read performance
@@ -975,6 +1042,7 @@ Print summary of existing chain file:
 The system can obtain trusted timestamps for the entire HDF5 database file using a TSA (Trusted Timestamp Authority) server. This provides **cryptographic proof of when the HDF5 file was created**, establishing an immutable timestamp that cannot be backdated or modified.
 
 **Purpose:**
+
 - **Creation Date Proof**: The TSA timestamp proves exactly when the HDF5 file was created
 - **Transitive Verification**: If the HDF5 file existed at time T, then the original messages file also existed at time T
 - **Anti-Backdating**: Prevents anyone from claiming the file was created at a different time
@@ -994,6 +1062,7 @@ Use TSA timestamping without verification (no CA bundle):
 **Note:** TSA timestamping is **opt-in** - it's only used when `--tsa-url` is explicitly provided. By default, no timestamping is performed.
 
 **TSA Timestamp Files:**
+
 - The TSA timestamp response is saved as a separate `.tsr` file (e.g., `output.h5.tsr`)
 - This prevents modification of the HDF5 file after timestamping
 - The `.tsr` file contains cryptographic proof of when the HDF5 file was created
@@ -1023,17 +1092,20 @@ openssl ts -verify -CAfile /etc/pki/tls/certs/ca-bundle.crt -data output.h5 -in 
 The TSA timestamping provides **transitive verification** of the original messages file:
 
 **Logical Chain:**
+
 1. **TSA Timestamp**: Proves HDF5 file existed at time T
 2. **HDF5 Content**: Contains hashes of messages file content
 3. **Transitive Proof**: If HDF5 existed at time T, then messages file existed at time T
 
 **Why This Works:**
+
 - The HDF5 file contains hashes of every line in the original messages file (using the selected algorithm)
 - If the HDF5 file was created at time T, the messages file must have existed at time T
 - The cryptographic hashes in the HDF5 file prove the exact content of the messages file
 - Therefore, the TSA timestamp on the HDF5 file provides proof of when the messages file existed
 
 **Legal and Forensic Implications:**
+
 - **Existence Proof**: Proves the messages file existed at the timestamped time
 - **Content Proof**: Proves the exact content of the messages file at that time
 - **Non-Repudiation**: Cannot deny the existence or content of the messages file
@@ -1111,16 +1183,19 @@ Chain verification result: INVALID
 ```
 
 **What This Tells You:**
+
 - ✅ **Exact Location**: Line 1000 was modified (chain integrity broken)
 - ✅ **Scope Assessment**: Lines 1-999 are intact (HMAC verification passed)
 - ✅ **Action Required**: Lines 1000+ may be affected
 - ✅ **Forensic Evidence**: Precise tamper location for investigation
+
 
 **Comparison with Simple File Timestamping:**
 - **Simple timestamping**: "The file was modified" (no details)
 - **Chain verification**: "Line 1000 was modified (chain integrity broken), lines 1-999 are intact (HMAC verification passed)"
 
 This precise detection capability is crucial for:
+
 - **Incident Response**: Know exactly what was compromised
 - **Forensic Analysis**: Provide detailed evidence for investigations
 - **Compliance Audits**: Demonstrate granular control over log integrity
@@ -1145,6 +1220,7 @@ The system now includes advanced change analysis that can detect and analyze str
 ```
 
 **What This Command Does:**
+
 1. **Compares** the current file with the original file stored in the chain
 2. **Detects** line deletions, insertions, and modifications
 3. **Analyzes** the scope and impact of changes
@@ -1178,6 +1254,7 @@ Summary: Analysis complete: 5 lines deleted, 0 lines inserted, 0 lines modified
 ```
 
 **What This Analysis Reveals:**
+
 - ✅ **Exact Deletion**: Lines 3-7 were deleted (5 lines total)
 - ✅ **Original Content**: Shows what was in those deleted lines
 - ✅ **Scope Assessment**: Knows exactly which lines are missing
@@ -1202,6 +1279,7 @@ Summary: Analysis complete: 0 lines deleted, 1 lines inserted, 0 lines modified
 ```
 
 **What This Analysis Reveals:**
+
 - ✅ **Insertion Location**: New line inserted after line 2
 - ✅ **Insertion Count**: Exactly 1 line was inserted
 - ✅ **Impact Assessment**: All subsequent line numbers shifted
@@ -1210,23 +1288,27 @@ Summary: Analysis complete: 0 lines deleted, 1 lines inserted, 0 lines modified
 **Advanced Analysis Capabilities:**
 
 **1. Deletion Detection:**
+
 - **Precise Identification**: Shows exactly which lines were deleted
 - **Content Recovery**: Shows the original content of deleted lines
 - **Scope Assessment**: Tells you how many lines were deleted and where
 - **Recovery Planning**: Identifies where the chain can resume
 
 **2. Insertion Detection:**
+
 - **Location Tracking**: Shows where new lines were inserted
 - **Count Analysis**: Reports how many lines were inserted
 - **Content Analysis**: Shows the inserted content
 - **Impact Assessment**: Understands how insertions affect subsequent lines
 
 **3. Modification Detection:**
+
 - **Content Changes**: Detects when line content was modified
 - **Hash Comparison**: Uses cryptographic hashes to verify changes
 - **Precise Location**: Identifies exactly which line was modified
 
 **4. Comprehensive Reporting:**
+
 - **Summary Statistics**: Shows total counts of each type of change
 - **Detailed Breakdown**: Provides specific line numbers and content
 - **Forensic Evidence**: Creates detailed audit trail for investigations
@@ -1235,24 +1317,28 @@ Summary: Analysis complete: 0 lines deleted, 1 lines inserted, 0 lines modified
 **Use Cases for Change Analysis:**
 
 **1. Forensic Investigations:**
+
 - **Evidence Collection**: Gather detailed evidence about what was changed
 - **Timeline Analysis**: Understand when and how changes occurred
 - **Scope Assessment**: Determine the full extent of unauthorized modifications
 - **Recovery Planning**: Plan how to restore or verify remaining data
 
 **2. Incident Response:**
+
 - **Quick Assessment**: Rapidly understand what was compromised
 - **Impact Analysis**: Determine the scope of the incident
 - **Containment Planning**: Know which systems or data are affected
 - **Recovery Procedures**: Plan how to restore integrity
 
 **3. Compliance Auditing:**
+
 - **Detailed Reporting**: Provide comprehensive audit trails
 - **Evidence Preservation**: Maintain detailed records of changes
 - **Regulatory Compliance**: Meet requirements for detailed logging
 - **Legal Documentation**: Create evidence suitable for legal proceedings
 
 **4. System Administration:**
+
 - **Change Tracking**: Monitor all modifications to log files
 - **Integrity Verification**: Ensure log files haven't been tampered with
 - **Backup Validation**: Verify that backup files are intact
@@ -1280,6 +1366,7 @@ Step 3: If all HMACs match, file integrity is verified
 ```
 
 **Key Advantages of HMAC Approach:**
+
 - **No External Lookups**: Each line automatically verifies the previous line
 - **Cryptographic Proof**: HMAC provides mathematical proof of chain integrity
 - **Efficient Processing**: Verification proceeds line-by-line without constant file access
@@ -1299,12 +1386,14 @@ The change analysis uses sophisticated algorithms to:
 **Benefits Over Traditional Methods:**
 
 **Traditional File Integrity:**
+
 - ❌ Only detects that the file changed
 - ❌ Cannot identify specific changes
 - ❌ No recovery guidance
 - ❌ Limited forensic value
 
 **Chain Verification with Change Analysis:**
+
 - ✅ Detects exact nature of changes (deletions, insertions, modifications)
 - ✅ Provides detailed forensic evidence
 - ✅ Offers recovery guidance
@@ -1315,6 +1404,7 @@ The change analysis uses sophisticated algorithms to:
 The system creates HDF5 (Hierarchical Data Format 5) files containing all verification data. For detailed information about the HDF5 storage format, data structure, and storage methods, see the [HDF5 Storage Format](#hdf5-storage-format) section.
 
 **Quick Overview:**
+
 - **log_lines**: Original log entries from the source file
 - **{algorithm}_hashes**: Raw binary hashes of each log line (32, 48, or 64 bytes depending on algorithm)
 - **hmacs**: Raw binary HMACs linking each line to the previous one
@@ -1322,6 +1412,7 @@ The system creates HDF5 (Hierarchical Data Format 5) files containing all verifi
 - **chain_hashes**: Alternative chain verification hashes
 
 **Key Metadata:**
+
 - **creation_date**: ISO timestamp when the chain was created
 - **hash_algorithm**: The hash algorithm used (SHA256/SHA384/SHA512)
 - **total_entries**: Number of log entries processed
@@ -1340,23 +1431,27 @@ The system includes comprehensive verification capabilities:
 4. Reports any mismatches found
 
 ### Partial Chain Verification
+
 - **Up to Line N**: Verify integrity up to a specific line number
 - **Range Verification**: Verify integrity for a specific range of lines
 - **Early Detection**: Can verify early lines even if later lines are tampered
 - **Precise Location**: Provides exact location of tampering detection
 
 ### Independent Verification
+
 - **Resilient Verification**: Verify later lines even when earlier lines are corrupted
 - **Line-by-Line**: Each line verified independently using line number + content
 - **Forensic Recovery**: Extract valid data from partially corrupted logs
 - **Partial Analysis**: Analyse specific time periods regardless of earlier corruption
 
 ### Fallback Verification
+
 - **Smart Verification**: Try chain verification first, then independent if chain fails
 - **Best of Both**: Combines chain integrity with independent resilience
 - **Automatic Recovery**: Automatically handles partial corruption scenarios
 
 ### Fast Verification (Sampling)
+
 - **Performance Optimization**: Check every M-th line instead of every line
 - **Configurable Sampling**: Adjustable interval (default: 100, custom: 50, 1000, etc.)
 - **Large File Support**: Significantly faster verification for files with many lines
@@ -1364,6 +1459,7 @@ The system includes comprehensive verification capabilities:
 - **Complete Assurance**: Proves authenticity of ALL lines between sampled points
 
 ### Use Cases for Verification Methods
+
 - **Real-time Monitoring**: Check integrity of recent log entries
 - **Forensic Analysis**: Verify specific time periods or events
 - **Performance**: Faster verification for large log files
@@ -1372,6 +1468,7 @@ The system includes comprehensive verification capabilities:
 - **Partial Analysis**: Analyse specific ranges regardless of earlier corruption
 
 ### When to Use Fast Verification
+
 - **Large Files**: Files with 10,000+ lines where full verification is too slow
 - **Routine Checks**: Regular integrity monitoring where speed is important
 - **Initial Screening**: Quick assessment before detailed analysis
@@ -1380,6 +1477,7 @@ The system includes comprehensive verification capabilities:
 - **Security Note**: Fast verification provides cryptographic chain integrity, not just statistical sampling
 
 ### When to Use Modification Scanning
+
 - **Incident Response**: When investigating suspected tampering
 - **Forensic Analysis**: When detailed modification information is needed
 - **Large Files with Modifications**: When you need to identify specific changes quickly
@@ -1414,18 +1512,21 @@ Store only hashes in HDF5, compute HMACs during verification:
 **Problems with This Approach:**
 
 **❌ Memory Usage Issues:**
+
 - **Large Files**: 100,000+ lines require significant memory (100MB+ for hashes alone)
 - **Memory Constraints**: May exceed available RAM on systems with limited memory
 - **Memory Allocation**: Dynamic memory allocation for large arrays can be slow
 - **Memory Fragmentation**: Large arrays can cause memory fragmentation
 
 **❌ Computation Time Issues:**
+
 - **Chain Computation**: Computing HMAC chain for large files is time-consuming
 - **Verification Delay**: Each verification requires full chain computation
 - **No Caching**: Cannot cache computed HMACs between verifications
 - **Linear Scaling**: Computation time scales linearly with file size
 
 **❌ Performance Bottlenecks:**
+
 - **Memory I/O**: Loading large hash arrays from HDF5 to memory
 - **CPU Intensive**: HMAC computation for every line during verification
 - **Sequential Processing**: Cannot parallelize chain computation
@@ -1434,18 +1535,21 @@ Store only hashes in HDF5, compute HMACs during verification:
 **✅ Advantages of Storing HMACs:**
 
 **Direct Access Efficiency:**
+
 - **HDF5 Pointers**: HDF5 provides direct access to data at specific positions
 - **No Parsing**: Unlike text files, no need to parse all lines to reach specific data
 - **Random Access**: Can access any HMAC directly without reading previous data
 - **Memory Efficient**: Only load required HMACs, not entire hash array
 
 **Performance Benefits:**
+
 - **Instant Verification**: Direct comparison of stored vs. computed HMACs
 - **Minimal Memory**: Only load current line's hash and HMAC
 - **No Chain Computation**: Eliminates expensive HMAC chain computation
 - **Scalable**: Performance remains constant regardless of file size
 
 **HDF5 Storage Advantages:**
+
 - **Efficient Storage**: HDF5 provides compressed, efficient storage
 - **Direct Access**: Like memory pointers, but persistent and compressed
 - **Random Access**: Can read specific datasets without loading entire file
@@ -1474,14 +1578,17 @@ Memory Allocation: Minimal, constant memory usage
 **Real-World Scenarios:**
 
 **Large Log Files (1M+ lines):**
+
 - **Hash-Only**: Memory usage ~32MB, verification time ~1-2 minutes
 - **HMAC-Stored**: Memory usage ~64 bytes, verification time ~1-2 seconds
 
 **Production Systems:**
+
 - **Hash-Only**: May cause memory pressure, slow response times
 - **HMAC-Stored**: Consistent performance, minimal resource usage
 
 **Embedded Systems:**
+
 - **Hash-Only**: May exceed available memory, cause system instability
 - **HMAC-Stored**: Works reliably with limited memory resources
 
@@ -1497,12 +1604,14 @@ Line 1000: Direct pointer access → Read line 1000 immediately
 ```
 
 **Memory Mapping Benefits:**
+
 - **Virtual Memory**: HDF5 can memory-map files, treating them as virtual memory
 - **Lazy Loading**: Only loads data when actually accessed
 - **OS Caching**: Operating system can cache frequently accessed data
 - **Efficient I/O**: Minimizes disk I/O operations
 
 **Compression Advantages:**
+
 - **Storage Efficiency**: HDF5 compression reduces file size by 30-70%
 - **I/O Performance**: Smaller files mean faster read/write operations
 - **Network Transfer**: Compressed files transfer faster over networks
@@ -1517,6 +1626,7 @@ Efficiency = 1 / Storage Ratio (lower ratio = higher efficiency)
 ```
 
 **Storage Overhead per Line:**
+
 - **Hash Storage**: 32 bytes (SHA256), 48 bytes (SHA384), or 64 bytes (SHA512)
 - **HMAC Storage**: 32 bytes (SHA256), 48 bytes (SHA384), or 64 bytes (SHA512)
 - **Independent Hash**: 32/48/64 bytes (depending on algorithm)
@@ -1526,16 +1636,19 @@ Efficiency = 1 / Storage Ratio (lower ratio = higher efficiency)
 **Efficiency by Line Length:**
 ```
 Short Lines (50-100 characters):
+
 - Source: 50-100 bytes per line
 - HDF5 Overhead: 128-256 bytes per line
 - Storage Ratio: 2.5-5x (inefficient)
 
 Medium Lines (200-500 characters):
+
 - Source: 200-500 bytes per line
 - HDF5 Overhead: 128-256 bytes per line
 - Storage Ratio: 0.5-1.3x (moderate efficiency)
 
 Long Lines (1000+ characters):
+
 - Source: 1000+ bytes per line
 - HDF5 Overhead: 128-256 bytes per line
 - Storage Ratio: 0.1-0.3x (highly efficient)
@@ -1544,21 +1657,25 @@ Long Lines (1000+ characters):
 **Real-World Examples:**
 
 **Log Files (Typical):**
+
 - **Average Line Length**: 150-300 characters
 - **Storage Ratio**: 0.8-1.5x
 - **Efficiency**: Good to moderate
 
 **JSON Logs (Structured):**
+
 - **Average Line Length**: 500-1000 characters
 - **Storage Ratio**: 0.3-0.6x
 - **Efficiency**: Very good
 
 **Short Status Messages:**
+
 - **Average Line Length**: 50-100 characters
 - **Storage Ratio**: 2-4x
 - **Efficiency**: Poor (consider alternatives)
 
 **Database Dumps:**
+
 - **Average Line Length**: 1000+ characters
 - **Storage Ratio**: 0.1-0.2x
 - **Efficiency**: Excellent
@@ -1566,18 +1683,21 @@ Long Lines (1000+ characters):
 **When Storage Schema Becomes Inefficient:**
 
 **❌ Poor Efficiency Scenarios (Storage Ratio > 2x):**
+
 - **Short Status Messages**: "OK", "ERROR", "SUCCESS" (5-10 characters)
 - **Simple Logs**: Timestamp + short message (50-100 characters)
 - **Configuration Files**: Key-value pairs (20-50 characters per line)
 - **CSV Data**: Short columns, many rows (50-150 characters per line)
 
 **⚠️ Consider Alternatives for Short Lines:**
+
 - **Simple File Hashing**: Store only file-level hashes
 - **Block-based Verification**: Hash blocks of lines instead of individual lines
 - **Compressed Storage**: Use higher compression levels
 - **Selective Verification**: Only verify critical lines
 
 **✅ Optimal Scenarios (Storage Ratio < 1x):**
+
 - **Application Logs**: Detailed error messages and stack traces
 - **JSON/XML Logs**: Structured data with metadata
 - **Database Exports**: Long records with multiple fields
@@ -1620,17 +1740,20 @@ Efficiency: Poor (not recommended)
 **Storage Efficiency Guidelines:**
 
 **✅ Recommended (Storage Ratio < 1.5x):**
+
 - Line length > 150 characters
 - Security-critical data
 - Audit requirements
 - Forensic analysis needs
 
 **⚠️ Consider Alternatives (Storage Ratio 1.5x - 3x):**
+
 - Line length 100-150 characters
 - Non-critical monitoring
 - Limited storage resources
 
 **❌ Not Recommended (Storage Ratio > 3x):**
+
 - Line length < 100 characters
 - High-volume, low-value data
 - Storage-constrained environments
@@ -1660,6 +1783,7 @@ SZIP Compression:
 ```
 
 **Compression Efficiency by Data Type:**
+
 - **Text Data**: GZIP provides best compression (30-50%)
 - **Numerical Data**: SZIP provides best compression (40-70%)
 - **Mixed Data**: LZF provides good balance (20-40%)
@@ -1761,6 +1885,7 @@ for i in range(1, total_lines):
 ```
 
 **Memory Scaling Comparison:**
+
 - **Small Files (1K lines)**: Both approaches work well
 - **Medium Files (10K lines)**: Hash-only approach starts showing memory pressure
 - **Large Files (100K lines)**: Hash-only approach may exceed available memory
@@ -1771,6 +1896,7 @@ for i in range(1, total_lines):
 **The Question**: "Why not store only hashes and compute HMACs during verification?"
 
 **The Answer**: Storing HMACs (and their keys) provides:
+
 1. **Memory Efficiency**: Constant memory usage vs. linear scaling
 2. **Performance**: Instant verification vs. computation delays
 3. **Scalability**: Works for any file size vs. memory constraints
@@ -1798,6 +1924,7 @@ for i in range(1, total_lines):
 ## Storage Efficiency
 
 Binary storage and compression provide significant space savings:
+
 - **32-byte binary hashes** instead of 64-character hex strings
 - **Multiple compression methods** available for different use cases
 - **Reduced file size** by approximately 50% compared to string storage
@@ -1805,6 +1932,7 @@ Binary storage and compression provide significant space savings:
 - **Better compression** due to binary data patterns
 
 ### Compression Methods Comparison
+
 - **gzip**: Good general-purpose compression, widely supported
   - Level 0-9: Configurable compression levels
   - 8-10% space savings with level 6-9
@@ -1817,6 +1945,7 @@ Binary storage and compression provide significant space savings:
   - Note: Structured array not available with szip
 
 ### Compression Recommendations
+
 - **szip**: Best compression (44% savings) - recommended for storage
 - **gzip level 6**: Good balance of compression and speed
 - **lzf**: Fastest compression/decompression for real-time use
@@ -1889,6 +2018,7 @@ chain-log/
 ### TSA Timestamping for Creation Date Proof
 
 The system automatically obtains a TSA (Trusted Timestamp Authority) timestamp for the entire HDF5 file, which provides:
+
 - **Cryptographic Proof of Creation Date**: The TSA timestamp proves exactly when the HDF5 file was created
 - **Transitive Verification**: If the HDF5 file existed at time T, then the original messages file also existed at time T
 - **Anti-Backdating Protection**: Prevents anyone from claiming the file was created at a different time
