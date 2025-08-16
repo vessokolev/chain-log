@@ -1,0 +1,4 @@
+h5py>=3.8.0
+numpy>=1.21.0
+requests>=2.25.0
+cryptography>=3.4.0
