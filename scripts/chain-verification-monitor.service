@@ -1,0 +1,24 @@
+[Unit]
+Description=Chain Verification Log Monitor
+After=network.target rsyslog.service
+Wants=rsyslog.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/chain-verification/scripts/monitor_log_rotation.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/chain-verification /var/log
+
+[Install]
+WantedBy=multi-user.target

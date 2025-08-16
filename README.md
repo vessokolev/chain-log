@@ -473,21 +473,53 @@ If someone modifies line 1000 in a 10,000-line log file:
 4. **Verification**: Use stored verification data for integrity checks
 5. **Cleanup**: Original rotated logs can be compressed/archived/deleted
 
-**Automation Example:**
-```bash
-#!/bin/bash
-# Process rotated logs automatically
-ROTATED_LOG="/var/log/messages.1"
-CHAIN_DIR="/opt/chain-verification/chains"
-DATE=$(date +%Y-%m-%d)
+**Complete Automation Solution:**
 
-if [ -f "$ROTATED_LOG" ]; then
-    ./chain_verification.py --source-file "$ROTATED_LOG" \
-                           --output "$CHAIN_DIR/messages_$DATE.h5" \
-                           --tsa-url http://timestamp.digicert.com/ \
-                           --ca-bundle /etc/pki/tls/certs/ca-bundle.crt
-fi
+**Quick Installation:**
+```bash
+# Clone the repository and install automation
+git clone <repository-url>
+cd chain-log
+chmod +x scripts/install_automation.sh
+sudo ./scripts/install_automation.sh
 ```
+
+**Manual Setup:**
+```bash
+# 1. Create directory structure
+sudo mkdir -p /opt/chain-verification/{chains,logs,metadata,scripts}
+
+# 2. Copy automation scripts
+sudo cp scripts/* /opt/chain-verification/scripts/
+sudo chmod +x /opt/chain-verification/scripts/*.sh
+
+# 3. Install systemd service
+sudo cp scripts/chain-verification-monitor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable chain-verification-monitor
+sudo systemctl start chain-verification-monitor
+
+# 4. Configure logrotate
+sudo cp scripts/logrotate-config /etc/logrotate.d/chain-verification
+```
+
+**Automation Methods:**
+
+**Method 1: Real-time Monitoring (Recommended)**
+- Uses `inotify` to detect log rotation events immediately
+- Processes rotated logs within seconds of rotation
+- Runs as a systemd service for reliability
+- Automatic restart on failure
+
+**Method 2: Logrotate Integration**
+- Triggers processing after logrotate completes rotation
+- Slightly delayed but more reliable
+- Integrates with existing log rotation policies
+
+**Method 3: rsyslog Integration**
+- Direct integration with rsyslog configuration
+- Immediate processing during rotation
+- Requires rsyslog configuration changes
 
 ### **🏭 Production Deployment Best Practices**
 
@@ -505,15 +537,50 @@ sudo chmod -R 750 /opt/chain-verification
 - **Monitoring**: Monitor disk space for verification data storage
 - **Retention Policy**: Define retention periods for verification data
 
-**Integration with logrotate:**
+**Integration with rsyslog Rotation:**
+
+**Method 1: rsyslog postrotate script (Recommended)**
+```bash
+# /etc/rsyslog.d/chain-verification.conf
+# Add to rsyslog configuration
+$outchannel chain_verification,/opt/chain-verification/scripts/process_rotation.sh,1048576,/opt/chain-verification/scripts/process_rotation.sh
+
+# Use the outchannel for specific log files
+if $programname == 'systemd' then :omfile:$chain_verification
+```
+
+**Method 2: logrotate postrotate (Alternative)**
 ```bash
 # /etc/logrotate.d/chain-verification
-/var/log/messages.1 {
+/var/log/messages {
+    rotate 7
+    daily
+    missingok
+    notifempty
+    compress
+    delaycompress
     postrotate
         /opt/chain-verification/scripts/process_rotated_log.sh
     endscript
 }
 ```
+
+**Method 3: inotify monitoring (Real-time)**
+```bash
+# Monitor log directory for rotation events
+inotifywait -m -e moved_from /var/log/ | while read path action file; do
+    if [[ "$file" =~ messages\.[0-9]+(\.gz|\.bz2|\.xz)?$ ]]; then
+        /opt/chain-verification/scripts/process_rotated_log.sh "$path$file"
+    fi
+done
+```
+
+**Key Features:**
+- **Automatic Configuration Parsing**: Reads `/etc/logrotate.d/rsyslog` to find log files
+- **Compression Support**: Handles `.gz`, `.bz2`, and `.xz` compressed files
+- **Multiple Rotation Patterns**: Supports `.1`, `.2`, date-based, and compressed rotations
+- **Real-time Processing**: Processes logs immediately after rotation
+- **Error Handling**: Comprehensive logging and cleanup of temporary files
 
 **Monitoring and Alerting:**
 - Monitor verification data creation success/failure
