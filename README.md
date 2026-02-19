@@ -3,7 +3,7 @@
 Author: 
 Veselin Kolev  
 Email: vesso.kolev@gmail.com  
-Date: 16 August 2025
+Date: 19 February 2025
 
 ## Table of Contents
 
@@ -11,7 +11,6 @@ Date: 16 August 2025
 - [Operational Considerations](#operational-considerations)
 - [Features](#features)
 - [Algorithm](#algorithm)
-  - [Critical Distinction: HMAC vs. Simple Hash Storage](#critical-distinction-hmac-vs-simple-hash-storage)
 - [Why Chain Verification vs. Simple File Timestamping?](#why-chain-verification-vs-simple-file-timestamping)
 - [Installation](#installation)
 - [HDF5 Storage Format](#hdf5-storage-format)
