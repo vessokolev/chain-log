@@ -1,3 +1,7 @@
+# Author: Veselin Kolev <vesso.kolev@gmail.com>
+# Date: 19 February 2026
+# Licence: GPLv2 (see LICENSE)
+#
 [Unit]
 Description=Chain Verification Log Monitor
 After=network.target rsyslog.service

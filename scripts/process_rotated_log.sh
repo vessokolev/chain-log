@@ -1,7 +1,11 @@
 #!/bin/bash
 # Process rotated logs for chain verification
 # This script is called by rsyslog or logrotate after log rotation
-
+#
+# Author: Veselin Kolev <vesso.kolev@gmail.com>
+# Date: 19 February 2026
+# Licence: GPLv2 (see LICENSE)
+#
 set -e
 
 # Configuration

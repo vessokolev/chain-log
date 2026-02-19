@@ -1,7 +1,11 @@
 #!/bin/bash
 # Real-time monitoring of log rotation events
 # Uses inotify to detect when rsyslog rotates log files
-
+#
+# Author: Veselin Kolev <vesso.kolev@gmail.com>
+# Date: 19 February 2026
+# Licence: GPLv2 (see LICENSE)
+#
 set -e
 
 # Configuration

@@ -1,6 +1,10 @@
 #!/bin/bash
 # Installation script for chain verification automation
-
+#
+# Author: Veselin Kolev <vesso.kolev@gmail.com>
+# Date: 19 February 2026
+# Licence: GPLv2 (see LICENSE)
+#
 set -e
 
 echo "=== Chain Verification Automation Installation ==="

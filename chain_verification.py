@@ -3,9 +3,13 @@
 Chain Verification System for Text Log Events
 
 This script implements a cryptographic chain verification system for log events.
-It reads a log file line by line, computes configurable hash algorithms (SHA256/SHA384/SHA512), 
+It reads a log file line by line, computes configurable hash algorithms (SHA256/SHA384/SHA512),
 and creates HMACs to establish a verifiable chain of events. All results are stored in HDF5 format
 for compatibility and efficient storage.
+
+Author: Veselin Kolev <vesso.kolev@gmail.com>
+Date: 19 February 2026
+Licence: GPLv2 (see LICENSE)
 """
 
 import hashlib
